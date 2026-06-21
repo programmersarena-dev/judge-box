@@ -1,0 +1,45 @@
+{
+  "gcc": {
+    "dockerImage": "gcc",
+    "commandCompile": "g++ /submission/submission.cpp -o /submission/executable",
+    "commandCompileGrader": "g++ -o /submission/executable /submission/grader.cpp /submission/submission.cpp",
+    "execute": "/submission/executable",
+    "versions": ["10", "11", "12"],
+    "extension": "cpp"
+  },
+  "python": {
+    "dockerImage": "python",
+    "execute": "python /submission/grader.py",
+    "versions": ["3.8", "3.9", "3.10"],
+    "extension": "py"
+  },
+  "php": {
+    "dockerImage": "php",
+    "execute": "php /submission/grader.php",
+    "versions": ["7.4", "8.0", "8.1"],
+    "extension": "php"
+  }
+  ,
+  "java": {
+    "dockerImage": "openjdk",
+    "commandCompile": "javac /submission/submission.java -d /submission/classes",
+    "commandCompileGrader": "javac /submission/Grader.java /submission/submission.java -d /submission/classes",
+    "execute": "java -cp /submission/classes Grader",
+    "versions": ["8", "11", "17"],
+    "extension": "java"
+  },
+  "javascript": {
+    "dockerImage": "node",
+    "execute": "node /submission/grader.js",
+    "versions": ["12", "14", "16"],
+    "extension": "js"
+  },
+  "rust": {
+    "dockerImage": "rust",
+    "commandCompile": "rustc /submission/submission.rs -o /submission/executable",
+    "commandCompileGrader": "rustc -o /submission/executable /submission/grader.rs /submission/submission.rs",
+    "execute": "/submission/executable",
+    "versions": ["1.70", "1.75", "stable"],
+    "extension": "rs"
+  }
+}

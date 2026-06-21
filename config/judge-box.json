@@ -1,0 +1,35 @@
+{
+  "executionMode": "docker",
+  "docker": {
+    "networkMode": "none",
+    "memorySwap": "off"
+  },
+  "isolate": {
+    "enabled": true,
+    "cgroupsVersion": 2,
+    "boxBaseDir": "/var/lib/isolate",
+    "maxBoxes": 32,
+    "enableCgroupMemory": true,
+    "enableCgroupCpu": true,
+    "enableCgroupPids": true,
+    "stackLimit": 8192,
+    "fileUploadLimit": 104857600,
+    "outputTruncateBytes": 1000000
+  },
+  "redis": {
+    "host": "127.0.0.1",
+    "port": 6379,
+    "db": 0,
+    "jobQueueKey": "judge:jobs",
+    "resultQueueKey": "judge:results",
+    "maxRetries": 3
+  },
+  "languages": {
+    "gcc": {"commandCompile": true, "versions": ["10", "11", "12"]},
+    "python": {"commandCompile": false, "versions": ["3.8", "3.9", "3.10"]},
+    "php": {"commandCompile": false, "versions": ["7.4", "8.0", "8.1"]},
+    "java": {"commandCompile": true, "versions": ["8", "11", "17"]},
+    "javascript": {"commandCompile": false, "versions": ["12", "14", "16"]},
+    "rust": {"commandCompile": true, "versions": ["1.70", "1.75"]}
+  }
+}

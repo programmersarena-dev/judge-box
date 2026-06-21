@@ -1,0 +1,36 @@
+version: "3.8"
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: judge-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  judge-daemon:
+    build: .
+    container_name: judge-daemon
+    depends_on:
+      - redis
+    environment:
+      EXEC_MODE: docker
+      ENABLE_REDIS: "1"
+      REDIS_URL: redis://redis:6379
+    volumes:
+      - ./src:/app/src
+      - ./config:/app/config
+      - /tmp:/tmp
+    ports:
+      - "3001:3001"
+    restart: unless-stopped
+    networks:
+      - judge-network
+
+networks:
+  judge-network:
+    driver: bridge
+
+volumes:
+  redis_data:
