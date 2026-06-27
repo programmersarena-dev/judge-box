@@ -203,9 +203,9 @@ php artisan judge:worker
 
 Terminal 3: Judge-Box
 ```bash
-cd judge-box
+cd judge-box/src/daemon
 npm install
-EXEC_MODE=docker ENABLE_REDIS=1 node src/daemon/index.js
+EXEC_MODE=docker ENABLE_REDIS=1 REDIS_URL=redis://127.0.0.1:6379 node index.js
 ```
 
 ## Testing the System
