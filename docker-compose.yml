@@ -1,8 +1,10 @@
-version: "3.8"
 services:
   judge-daemon:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: judge-daemon
+    init: true
     environment:
       EXEC_MODE: docker
       ENABLE_REDIS: "1"
@@ -12,12 +14,27 @@ services:
       - ./config:/app/config
       - /tmp:/tmp
       - judge-daemon-node-modules:/app/src/daemon/node_modules
+      - /var/run/docker.sock:/var/run/docker.sock
+    group_add:
+      - "${DOCKER_GID:-999}"
     ports:
       - "3001:3001"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     networks:
       - judge-network
       - backend-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: judge-redis
+    restart: unless-stopped
+    networks:
+      - judge-network
 
 networks:
   judge-network:

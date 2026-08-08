@@ -42,20 +42,16 @@ async function processJob(job) {
   await fs.remove(tmpDir);
   await fs.mkdirp(tmpDir);
 
-  // 1. Write the source files and grader files
   for (let [name, content] of Object.entries(job.files || {})) {
     if (content) {
-      // Check if the string is wrapped in literal escaped quotes due to double-serialization
       if (
         typeof content === "string" &&
         content.startsWith('"') &&
         content.endsWith('"')
       ) {
         try {
-          // Safely unwrap the string
           content = JSON.parse(content);
         } catch (e) {
-          // Fallback fallback if it's a structural anomaly
           content = content.slice(1, -1);
         }
       }
@@ -67,7 +63,6 @@ async function processJob(job) {
   const mem = job.memory_limit || 256; // MB
   const timeLimit = job.time_limit || 1; // seconds
 
-  // 2. Compile Phase (Executed ONCE per submission)
   if (lang.commandCompile) {
     let compileCmd = "";
     if (EXEC_MODE === "isolate") {
@@ -92,16 +87,19 @@ async function processJob(job) {
 
   // 3. Execution Phase (Loop through nested Subtasks and Test cases)
   const subtasks = job.subtasks || [];
+  let status = "";
+  let totalPoints = 0;
 
   for (const subtask of subtasks) {
     const testResults = [];
+    let isPassedSubtask = true;
 
     for (const [testIndex, test] of subtask.tests.entries()) {
       // Setup isolated inputs for current test case run
       await fs.writeFile(path.join(tmpDir, "input.txt"), test.input || "");
       await fs.writeFile(
         path.join(tmpDir, "expected.txt"),
-        test.expected_output || ""
+        test.expected_output || "",
       );
 
       let execCmd = "";
@@ -145,7 +143,7 @@ async function processJob(job) {
 
         const checkerCmd = `bash /app/src/checkers/check.sh /submission/submission_output.txt /submission/expected.txt`;
         const checkerRes = await runCommand(
-          `docker run --rm --network none -v ${tmpDir}:/submission bash:5.2 sh -c "${checkerCmd}"`
+          `docker run --rm --network none -v ${tmpDir}:/submission bash:5.2 sh -c "${checkerCmd}"`,
         );
 
         if (checkerRes.out.trim() !== "OK") {
@@ -155,24 +153,39 @@ async function processJob(job) {
 
       testResults.push({
         status: testVerdict,
+        input: test.input || "",
+        output: filteredOutput,
+        expected_output: test.expected_output || "",
         time_used_ms: timeMs,
         memory_used_kb: memoryKb,
-        log: testVerdict, // compatibility flag for old checker arrays
+        log: testVerdict,
       });
+
+      status = testVerdict;
+      if (testVerdict !== "OK") {
+        isPassedSubtask = false;
+      }
+
+      if (job.grading_type === "Standard" && testVerdict !== "OK") {
+        break;
+      }
     }
+    const subtaskPoints = isPassedSubtask ? subtask.points : 0;
+    totalPoints += subtaskPoints;
 
     processedSubtasks.push({
       index: subtask.index,
-      points: subtask.points,
+      points: subtaskPoints,
       tests: testResults,
     });
   }
 
   await fs.remove(tmpDir);
 
-  // Return formatted response object mapped perfectly to Laravel consumption definitions
+  status = job.grading_type === "Standard" ? status : totalPoints;
+
   return {
-    status: "Judged",
+    status: status,
     max_time_used_ms: maxTimeMs,
     max_memory_used_kb: maxMemoryKb,
     error_message: null,
@@ -185,6 +198,8 @@ app.post("/job", async (req, res) => {
   const result = await processJob(job);
   return res.json(result);
 });
+
+app.get("/health", (req, res) => res.json({ status: "ok" }));
 
 // Redis queue listener
 async function startRedisWorker() {
@@ -208,10 +223,12 @@ async function startRedisWorker() {
 
       const result = await processJob(job);
 
+      console.log(`Processed job ${job.id || "unknown"} with result:`, result);
+
       // Push payload result matrix back to Laravel's queue worker consumer
       await redis.lpush(
         "judge:results",
-        JSON.stringify({ id: job.id || null, result })
+        JSON.stringify({ id: job.id || null, result }),
       );
     }
   } catch (err) {
