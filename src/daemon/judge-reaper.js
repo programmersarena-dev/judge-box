@@ -12,20 +12,14 @@
 // judge:results silently wins. Too high just means a genuinely dead
 // worker's job sits unprocessed a bit longer before recovery — much
 // safer failure mode than duplicate judging.
-const path = require("path");
-require("dotenv").config({
-    path: path.resolve(__dirname, "../../.env"),
-});
 
 const Redis = require("ioredis");
+const { REDIS_URL, REDIS_PREFIX } = require("./config");
 
-const REDIS_URL = process.env.REDIS_URL || "redis://127.0.0.1:6379";
 const STALE_MS = parseInt(process.env.JUDGE_STALE_MS, 10) || 5 * 60 * 1000; // 5 min
 const SCAN_INTERVAL_MS = 30 * 1000;
 
-const redis = new Redis(REDIS_URL, {
-    keyPrefix: process.env.REDIS_PREFIX || "",
-});
+const redis = new Redis(REDIS_URL, { keyPrefix: REDIS_PREFIX });
 
 async function scanKeys(pattern) {
     const keys = [];
