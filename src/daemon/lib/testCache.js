@@ -46,7 +46,11 @@ async function ensureTestCasesCached(problemId, version) {
 // a gradual rollout.
 async function readTestFile(cacheDir, relativeFile, inlineFallback) {
     if (relativeFile && cacheDir) {
-        return fs.readFile(path.join(cacheDir, relativeFile), "utf8");
+        const fullPath = path.join(cacheDir, relativeFile);
+        if (!(await fs.pathExists(fullPath))) {
+            throw new Error(`Test file not found in cache: ${relativeFile} (${fullPath})`);
+        }
+        return fs.readFile(fullPath, "utf8");
     }
     return inlineFallback || "";
 }

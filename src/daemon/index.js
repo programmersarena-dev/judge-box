@@ -3,6 +3,7 @@ const bodyParser = require("body-parser");
 const { processJob } = require("./processJob");
 const { refreshLocalImageInventory } = require("./lib/dockerImages");
 const { startRedisWorker } = require("./redisWorker");
+const { PORT, ENABLE_REDIS } = require("./config");
 
 const app = express();
 app.use(bodyParser.json({ limit: "10mb" }));
@@ -24,9 +25,9 @@ async function main() {
     // less complete than having the full list ready up front).
     await refreshLocalImageInventory();
 
-    app.listen(3001, () => console.log("Judge daemon listening on :3001"));
+    app.listen(PORT, () => console.log(`Judge daemon listening on :${PORT}`));
 
-    if (process.env.ENABLE_REDIS === "1") {
+    if (ENABLE_REDIS) {
         startRedisWorker();
     }
 }

@@ -5,16 +5,26 @@ const { LANGS, EXEC_MODE, SANDBOX_FLAGS } = require("./config");
 const { runCommand } = require("./lib/runCommand");
 const { ensureLanguageAvailable } = require("./lib/dockerImages");
 const { ensureTestCasesCached } = require("./lib/testCache");
+const { setSubmissionJudging, setSubmissionFinished } = require("./lib/redis");
 const { runGrading } = require("./grading");
 
 async function processJob(job) {
     const id = job.id || uuidv4();
+    const match = String(id).match(/^sub-(\d+)-/);
+    const submissionId = job.submission_id || (match ? match[1] : id);
+
+    await setSubmissionJudging(submissionId, { status: "Judging" });
+
     const langKey = job.language;
     const version =
         job.version ||
         (LANGS[langKey] && LANGS[langKey].versions && LANGS[langKey].versions[0]);
     const lang = LANGS[langKey];
-    if (!lang) return { error: "unsupported language" };
+    if (!lang) {
+        const res = { error: "unsupported language", status: "Judge Error" };
+        await setSubmissionFinished(submissionId, res);
+        return res;
+    }
 
     const dockerImage = `${lang.dockerImage}:${version}`;
 
@@ -27,11 +37,12 @@ async function processJob(job) {
     if (EXEC_MODE === "docker") {
         const { available, error } = await ensureLanguageAvailable(dockerImage);
         if (!available) {
-            return {
+            const res = {
                 status: "Judge Error",
-                error_message: `Language image not available on this judge node: ${dockerImage}${error ? ` (${error})` : ""
-                    }`,
+                error_message: `Language image not available on this judge node: ${dockerImage}${error ? ` (${error})` : ""}`,
             };
+            await setSubmissionFinished(submissionId, res);
+            return res;
         }
     }
 
@@ -80,7 +91,9 @@ async function processJob(job) {
         const compileRes = await runCommand(compileCmd, { maxBuffer: 10 * 1024 * 1024 });
         if (compileRes.code !== 0) {
             await fs.remove(tmpDir);
-            return { status: "CE", error_message: compileRes.out };
+            const res = { status: "CE", error_message: compileRes.out, time: 0, memory: 0 };
+            await setSubmissionFinished(submissionId, res);
+            return res;
         }
     }
 
@@ -89,12 +102,23 @@ async function processJob(job) {
         testCacheDir = await ensureTestCasesCached(job.problem_id, job.test_cases_version);
     } catch (e) {
         await fs.remove(tmpDir);
-        return { status: "Judge Error", error_message: `Failed to fetch test cases: ${e.message}` };
+        const res = { status: "Judge Error", error_message: `Failed to fetch test cases: ${e.message}` };
+        await setSubmissionFinished(submissionId, res);
+        return res;
     }
 
-    const ctx = { tmpDir, dockerImage, mem, timeLimit, lang, id, testCacheDir };
-    const outcome = await runGrading(job, ctx);
+    const ctx = { tmpDir, dockerImage, mem, timeLimit, lang, id, submissionId, submission_id: submissionId, testCacheDir };
+    let outcome;
+    try {
+        outcome = await runGrading(job, ctx);
+    } catch (e) {
+        await fs.remove(tmpDir);
+        const res = { status: "Judge Error", error_message: `Grading failed: ${e.message}` };
+        await setSubmissionFinished(submissionId, res);
+        return res;
+    }
 
+    await setSubmissionFinished(submissionId, outcome);
     await fs.remove(tmpDir);
     return outcome;
 }

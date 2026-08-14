@@ -14,10 +14,7 @@
 // safer failure mode than duplicate judging.
 
 const Redis = require("ioredis");
-const { REDIS_URL, REDIS_PREFIX } = require("./config");
-
-const STALE_MS = parseInt(process.env.JUDGE_STALE_MS, 10) || 5 * 60 * 1000; // 5 min
-const SCAN_INTERVAL_MS = 30 * 1000;
+const { REDIS_URL, REDIS_PREFIX, STALE_MS, SCAN_INTERVAL_MS } = require("./config");
 
 const redis = new Redis(REDIS_URL, { keyPrefix: REDIS_PREFIX });
 

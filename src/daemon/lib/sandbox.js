@@ -2,6 +2,7 @@ const fs = require("fs-extra");
 const path = require("path");
 const { runCommand } = require("./runCommand");
 const { readTestFile } = require("./testCache");
+const { updateSubmissionTestStatus } = require("./redis");
 const { EXEC_MODE, SANDBOX_FLAGS } = require("../config");
 
 function sanitizeText(str) {
@@ -57,18 +58,29 @@ async function executeAgainstTest(ctx, test, testIndex) {
         outputStr.replace(/\nTime: [0-9.]+\nMemory: [0-9]+/, "")
     );
 
-    let testVerdict = "OK";
+    let testVerdict = "AC";
     if (execRes.code === 124) testVerdict = "TLE";
     else if (execRes.code === 137) testVerdict = "MLE";
     else if (execRes.code !== 0) testVerdict = "RE";
 
-    if (testVerdict === "OK" && !compareOutputs(filteredOutput, sanitizedExpected)) {
+    if (testVerdict === "AC" && !compareOutputs(filteredOutput, sanitizedExpected)) {
         testVerdict = "WA";
     }
 
     console.log(
         `[Worker] job ${id} test ${testIndex} → ${testVerdict} (Time: ${timeMs} ms, Memory: ${memoryKb} KB)`
     );
+
+    const match = String(id).match(/^sub-(\d+)-/);
+    const submissionId = ctx.submissionId || ctx.submission_id || (match ? match[1] : id);
+
+    await updateSubmissionTestStatus(submissionId, {
+        status: testVerdict,
+        time: timeMs,
+        memory: memoryKb,
+        testIndex,
+        verdict: testVerdict,
+    });
 
     return { testVerdict, timeMs, memoryKb, filteredOutput, sanitizedInput, sanitizedExpected };
 }

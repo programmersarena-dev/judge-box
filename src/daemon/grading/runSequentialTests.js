@@ -7,7 +7,7 @@ async function runSequentialTests(tests, ctx) {
     const testResults = [];
     let maxTimeMs = 0;
     let maxMemoryKb = 0;
-    let verdict = "OK";
+    let verdict = "AC";
 
     for (const [testIndex, test] of tests.entries()) {
         const { testVerdict, timeMs, memoryKb, filteredOutput, sanitizedInput, sanitizedExpected } =
@@ -20,10 +20,10 @@ async function runSequentialTests(tests, ctx) {
         );
 
         verdict = testVerdict;
-        if (testVerdict !== "OK") break;
+        if (testVerdict !== "AC" && testVerdict !== "OK") break;
     }
 
-    return { verdict, maxTimeMs, maxMemoryKb, testResults };
+    return { verdict: (verdict === "OK" ? "AC" : verdict), maxTimeMs, maxMemoryKb, testResults };
 }
 
 module.exports = { runSequentialTests };

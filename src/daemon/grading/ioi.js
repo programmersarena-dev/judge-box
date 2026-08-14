@@ -41,7 +41,7 @@ async function runIOI(job, ctx) {
 
             maxTimeMs = Math.max(maxTimeMs, timeMs);
             maxMemoryKb = Math.max(maxMemoryKb, memoryKb);
-            if (testVerdict !== "OK") isPassedSubtask = false;
+            if (testVerdict !== "AC" && testVerdict !== "OK") isPassedSubtask = false;
 
             return toTestResult(testVerdict, timeMs, memoryKb, filteredOutput, sanitizedInput, sanitizedExpected);
         });

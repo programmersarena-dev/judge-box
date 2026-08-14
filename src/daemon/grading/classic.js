@@ -17,15 +17,16 @@ async function runClassic(job, ctx) {
 
     const { verdict, maxTimeMs, maxMemoryKb, testResults } = await runSequentialTests(tests, ctx);
 
+    const isPassed = verdict === "AC" || verdict === "OK";
     return {
-        status: verdict === "OK" ? "AC" : verdict,
+        status: isPassed ? "AC" : verdict,
         max_time_used_ms: maxTimeMs,
         max_memory_used_kb: maxMemoryKb,
         error_message: null,
         subtasks: [
             {
                 index: 0,
-                points: verdict === "OK" ? job.subtasks?.[0]?.points ?? 100 : 0,
+                points: isPassed ? job.subtasks?.[0]?.points ?? 100 : 0,
                 tests: testResults,
             },
         ],
