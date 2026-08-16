@@ -38,4 +38,4 @@ COPY config /app/config
 EXPOSE 3001
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["node", "/app/src/daemon/judge-daemon.js"]
+CMD ["node", "/app/src/daemon/index.js"]

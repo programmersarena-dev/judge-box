@@ -1,47 +1,41 @@
-services:
-  judge-daemon:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: judge-daemon
-    init: true
-    environment:
-      EXEC_MODE: docker
-      ENABLE_REDIS: "1"
-      REDIS_URL: redis://redis:6379
-    volumes:
-      - ./src:/app/src
-      - ./config:/app/config
-      - /tmp:/tmp
-      - judge-daemon-node-modules:/app/src/daemon/node_modules
-      - /var/run/docker.sock:/var/run/docker.sock
-    group_add:
-      - "${DOCKER_GID:-999}"
-    ports:
-      - "3001:3001"
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-    networks:
-      - judge-network
-      - backend-network
+FROM node:20-bookworm-slim
 
-  redis:
-    image: redis:7-alpine
-    container_name: judge-redis
-    restart: unless-stopped
-    networks:
-      - judge-network
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    make \
+    python3 \
+    python3-pip \
+    default-jdk-headless \
+    git \
+    ca-certificates \
+    curl \
+    coreutils \
+    time \
+    procps \
+    iproute2 \
+    iputils-ping \
+    gnupg \
+    tini && \
+    install -m 0755 -d /etc/apt/keyrings && \
+    curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
+    chmod a+r /etc/apt/keyrings/docker.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list && \
+    apt-get update && apt-get install -y --no-install-recommends docker-ce-cli && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-networks:
-  judge-network:
-    driver: bridge
-  backend-network:
-    external: true
-    name: backend_app-network
+WORKDIR /app/src/daemon
 
-volumes:
-  judge-daemon-node-modules:
+COPY src/daemon/package*.json ./
+
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --omit=dev
+
+COPY src/daemon /app/src/daemon
+COPY src/checkers /app/src/checkers
+COPY config /app/config
+
+EXPOSE 3001
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["node", "/app/src/daemon/index.js"]

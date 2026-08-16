@@ -40,14 +40,10 @@ async function updateSubmissionTestStatus(submissionId, testInfo = {}) {
             maxTimeMs,
             maxMemoryKb,
             totalTests,
-            verdict,
         } = testInfo;
 
         const testNum = typeof testIndex === "number" ? testIndex + 1 : (testInfo.test || 1);
-        let statusText = status || verdict || "AC";
-        if (statusText === "OK") {
-            statusText = "AC";
-        }
+        let statusText = status;
 
         const hashKey = `judge:submission:${submissionId}`;
         const statusKey = `judge:submission:${submissionId}:status`;

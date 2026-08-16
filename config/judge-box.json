@@ -29,7 +29,7 @@
     "networkMode": "none",
     "memorySwap": "off",
     "autoPullMissingImages": false,
-    "sandboxFlags": "--pids-limit 64 --cpus 1 --cap-drop=ALL --security-opt no-new-privileges --user 1000:1000"
+    "sandboxFlags": "--pids-limit 64 --cpus 2 --cap-drop=ALL --security-opt no-new-privileges"
   },
   "isolate": {
     "enabled": true,
@@ -55,22 +55,37 @@
     "gcc": {
       "dockerImage": "gcc",
       "commandCompile": "g++ /submission/submission.cpp -o /submission/executable",
-      "commandCompileGrader": "g++ -o /submission/executable /submission/grader.cpp /submission/submission.cpp",
+      "commandCompileGrader": "g++ -o /submission/executable /submission/grader.cpp",
       "execute": "/submission/executable",
-      "versions": ["10", "11", "12"],
+      "versions": ["10"],
       "extension": "cpp"
     },
     "python": {
       "dockerImage": "python",
-      "execute": "python /submission/grader.py",
-      "versions": ["3.8", "3.9", "3.10"],
+      "execute": "python /submission/submission.py",
+      "versions": ["3.10"],
       "extension": "py"
     },
     "php": {
       "dockerImage": "php",
-      "execute": "php /submission/grader.php",
-      "versions": ["7.4", "8.0", "8.1"],
+      "execute": "php /submission/submission.php",
+      "versions": ["8.0"],
       "extension": "php"
+    },
+    "freepascal": {
+      "dockerImage": "freepascal",
+      "commandCompile": "fpc -O2 -o/submission/executable /submission/submission.pas",
+      "commandCompileGrader": "fpc -O2 -o/submission/executable /submission/grader.pas",
+      "execute": "/submission/executable",
+      "versions": ["3.2.2"],
+      "extension": "pas"
+    },
+    "golang": {
+      "dockerImage": "golang",
+      "commandCompile": "go build -o /submission/executable /submission/submission.go",
+      "execute": "/submission/executable",
+      "versions": ["1.21.6"],
+      "extension": "go"
     },
     "java": {
       "dockerImage": "openjdk",
@@ -82,14 +97,14 @@
     },
     "javascript": {
       "dockerImage": "node",
-      "execute": "node /submission/grader.js",
+      "execute": "node /submission/submission.js",
       "versions": ["12", "14", "16"],
       "extension": "js"
     },
     "rust": {
       "dockerImage": "rust",
       "commandCompile": "rustc /submission/submission.rs -o /submission/executable",
-      "commandCompileGrader": "rustc -o /submission/executable /submission/grader.rs /submission/submission.rs",
+      "commandCompileGrader": "rustc -o /submission/executable /submission/submission.rs /submission/submission.rs",
       "execute": "/submission/executable",
       "versions": ["1.70", "1.75", "stable"],
       "extension": "rs"

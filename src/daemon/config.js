@@ -2,7 +2,6 @@ const path = require("path");
 const fs = require("fs-extra");
 
 const CONFIG_FILE = path.resolve(__dirname, "../../config/judge-box.json");
-const LANG_FILE = path.resolve(__dirname, "../../config/languages.json");
 
 let jsonConfig = {};
 try {
@@ -17,8 +16,6 @@ let langConfig = {};
 try {
     if (jsonConfig.languages && Object.keys(jsonConfig.languages).length > 0) {
         langConfig = jsonConfig.languages;
-    } else if (fs.existsSync(LANG_FILE)) {
-        langConfig = JSON.parse(fs.readFileSync(LANG_FILE, "utf8"));
     }
 } catch (e) {
     console.error("[Config] Error loading languages:", e.message);

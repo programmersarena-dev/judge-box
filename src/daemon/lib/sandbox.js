@@ -21,15 +21,12 @@ function compareOutputs(actual, expected) {
     return true;
 }
 
-// Runs a single test case in a sandboxed container and returns its
-// verdict + timing. The one place execution/sandboxing logic lives, used
-// by every grading type.
 async function executeAgainstTest(ctx, test, testIndex) {
     if (!test) {
         throw new Error(`Test definition at index ${testIndex} is missing or undefined.`);
     }
 
-    const { tmpDir, dockerImage, mem, timeLimit, lang, id, testCacheDir } = ctx;
+    const { tmpDir, dockerImage, mem, timeLimit, id, testCacheDir, checkerReady, executeCmd } = ctx;
 
     const sanitizedInput = sanitizeText(
         await readTestFile(testCacheDir, test.input_file, test.input)
@@ -39,12 +36,13 @@ async function executeAgainstTest(ctx, test, testIndex) {
     );
 
     await fs.writeFile(path.join(tmpDir, "input.txt"), sanitizedInput);
+    await fs.writeFile(path.join(tmpDir, "expected.txt"), sanitizedExpected);
 
     let execCmd;
     if (EXEC_MODE === "isolate") {
-        execCmd = `sh /app/src/sandbox/isolate_runner.sh run ${mem} ${timeLimit} "${lang.execute}" ${tmpDir}`;
+        execCmd = `sh /app/src/sandbox/isolate_runner.sh run ${mem} ${timeLimit} "${executeCmd}" ${tmpDir}`;
     } else {
-        execCmd = `docker run --rm --network none --memory=${mem}m ${SANDBOX_FLAGS} -v ${tmpDir}:/submission ${dockerImage} sh -c "/usr/bin/time -f '\\nTime: %e\\nMemory: %M' timeout ${timeLimit}s ${lang.execute} < /submission/input.txt 2>&1"`;
+        execCmd = `docker run --rm --network none --memory=${mem}m ${SANDBOX_FLAGS} -v ${tmpDir}:/submission ${dockerImage} sh -c "/usr/bin/time -f '\\nTime: %e\\nMemory: %M' timeout ${timeLimit}s ${executeCmd} < /submission/input.txt 2>&1"`;
     }
 
     const execRes = await runCommand(execCmd, { maxBuffer: 20 * 1024 * 1024 });
@@ -58,17 +56,30 @@ async function executeAgainstTest(ctx, test, testIndex) {
         outputStr.replace(/\nTime: [0-9.]+\nMemory: [0-9]+/, "")
     );
 
-    let testVerdict = "AC";
+    let testVerdict = "OK";
+    let checkerLog = null;
+
     if (execRes.code === 124) testVerdict = "TLE";
     else if (execRes.code === 137) testVerdict = "MLE";
     else if (execRes.code !== 0) testVerdict = "RE";
 
-    if (testVerdict === "AC" && !compareOutputs(filteredOutput, sanitizedExpected)) {
-        testVerdict = "WA";
+    if (testVerdict === "OK") {
+        if (checkerReady) {
+            await fs.writeFile(path.join(tmpDir, "output.txt"), filteredOutput);
+
+            const { runChecker } = require("./checker");
+            const checkerResult = await runChecker(tmpDir, mem);
+            testVerdict = checkerResult.verdict;
+            checkerLog = checkerResult.checkerLog || null;
+        } else {
+            if (!compareOutputs(filteredOutput, sanitizedExpected)) {
+                testVerdict = "WA";
+            }
+        }
     }
 
     console.log(
-        `[Worker] job ${id} test ${testIndex} → ${testVerdict} (Time: ${timeMs} ms, Memory: ${memoryKb} KB)`
+        `[Worker] job ${id} test ${testIndex} → ${testVerdict} (Time: ${timeMs} ms, Memory: ${memoryKb} KB)${checkerLog ? ` [checker: ${checkerLog}]` : ""}`
     );
 
     const match = String(id).match(/^sub-(\d+)-/);
@@ -79,7 +90,6 @@ async function executeAgainstTest(ctx, test, testIndex) {
         time: timeMs,
         memory: memoryKb,
         testIndex,
-        verdict: testVerdict,
     });
 
     return { testVerdict, timeMs, memoryKb, filteredOutput, sanitizedInput, sanitizedExpected };
