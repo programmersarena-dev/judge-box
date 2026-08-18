@@ -1,7 +1,7 @@
 const { executeAgainstTest, toTestResult } = require("../lib/sandbox");
 const { compileCommunicationBinaries, executeCommunicationTest } = require("./communication");
 const { IOI_TEST_CONCURRENCY } = require("../config");
-const { setSubmissionJudging, setSubmissionFinished } = require("../lib/redis");
+const { setSubmissionJudging, setSubmissionFinished, updateSubmissionTestStatus } = require("../lib/redis");
 const fs = require("fs-extra");
 const path = require("path");
 
@@ -54,7 +54,18 @@ async function runIOI(job, ctx) {
     const tests = subtask.tests || [];
     let isPassedSubtask = true;
 
+    await updateSubmissionTestStatus(submissionId, {
+      status: "Judging",
+      subtask: subtask.index + 1,
+    });
+
     const testResults = await runWithConcurrency(tests, IOI_TEST_CONCURRENCY, async (test, testIndex) => {
+      await updateSubmissionTestStatus(submissionId, {
+        status: "Judging",
+        testIndex,
+        subtask: subtask.index + 1,
+      });
+
       try {
         const { status, time_used_ms, memory_used_kb, input, output, expected_output } =
           await runOneTest(ctx, test, testIndex);

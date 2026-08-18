@@ -40,6 +40,7 @@ async function updateSubmissionTestStatus(submissionId, testInfo = {}) {
             maxTimeMs,
             maxMemoryKb,
             totalTests,
+            subtask,
         } = testInfo;
 
         const testNum = typeof testIndex === "number" ? testIndex + 1 : (testInfo.test || 1);
@@ -74,6 +75,9 @@ async function updateSubmissionTestStatus(submissionId, testInfo = {}) {
         }
         if (totalTests !== undefined) {
             hashPayload.total_tests = String(totalTests);
+        }
+        if (subtask !== undefined) {
+            hashPayload.subtask = String(subtask);
         }
 
         // Store as Redis Hash on primary and fallback keys
@@ -116,6 +120,8 @@ async function setSubmissionJudging(submissionId, initialInfo = {}) {
             time: String(initialInfo.time || 0),
             memory: String(initialInfo.memory || 0),
             test: "0",
+            test_index: "0",
+            subtask: "0",
             updated_at: String(Date.now()),
         };
 
@@ -155,6 +161,9 @@ async function setSubmissionFinished(submissionId, finalResult = {}) {
             max_memory: String(finalResult.max_memory_used_kb ?? finalResult.memory ?? 0),
             error_message: String(finalResult.error_message || ""),
             updated_at: String(Date.now()),
+            test: "0",
+            test_index: "0",
+            subtask: "0",
         };
 
         if (finalResult.subtasks) {
