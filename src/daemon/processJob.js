@@ -6,9 +6,11 @@ const { runCommand } = require("./lib/runCommand");
 const { ensureLanguageAvailable } = require("./lib/dockerImages");
 const { ensureTestCasesCached } = require("./lib/testCache");
 const { runGrading } = require("./grading");
+const { compileChecker } = require("./lib/checker");
 
 async function processJob(job) {
   const id = job.id || uuidv4();
+  const submissionId = job.submission_id || job.submissionId || id;
   const langKey = job.language;
   const version =
     job.version ||
@@ -18,12 +20,6 @@ async function processJob(job) {
 
   const dockerImage = `${lang.dockerImage}:${version}`;
 
-  // Checked FIRST, before writing anything to disk — a job for a
-  // language/version this node doesn't have now fails fast with an
-  // honest "Judge Error" instead of wasting a temp-dir write + compile
-  // attempt, then falling through to docker run failing deep inside
-  // executeAgainstTest where a nonzero exit code would previously have
-  // been misclassified as "Runtime Error" on the user's own code.
   if (EXEC_MODE === "docker") {
     const { available, error } = await ensureLanguageAvailable(dockerImage);
     if (!available) {
@@ -57,20 +53,22 @@ async function processJob(job) {
     }
   }
 
-  // Time limit conversion: if > 50, treat as milliseconds and convert to
-  // seconds. NOTE: this magnitude-based guess is a stopgap, not a real
-  // fix — it happens to work because 1000ms (1s, a very common default)
-  // clears the threshold, but a genuinely-intended 45ms limit and a
-  // genuinely-intended 45s limit are indistinguishable to this
-  // heuristic. The durable fix is enforcing one canonical unit
-  // (milliseconds, matching the problems.time_limit column) end-to-end
-  // from GradeSubmissionJob.php through to here, rather than guessing
-  // from the number's size.
   const rawTimeLimit = parseInt(job.time_limit, 10) || 1000;
   const timeLimit = rawTimeLimit > 50 ? Math.max(1, Math.ceil(rawTimeLimit / 1000)) : rawTimeLimit;
   const mem = parseInt(job.memory_limit, 10) || 256;
 
-  if (lang.commandCompile && (job.task_type || "Batch") !== "Communication") {
+  let testCacheDir = null;
+  try {
+    testCacheDir = await ensureTestCasesCached(job.problem_id, job.test_cases_version);
+  } catch (e) {
+    await fs.remove(tmpDir);
+    return { status: "Judge Error", error_message: `Failed to fetch test cases: ${e.message}` };
+  }
+
+  const isCommunication = (job.task_type || "Batch") === "Communication"
+    || (testCacheDir && fs.existsSync(path.join(testCacheDir, "graders")));
+
+  if (lang.commandCompile && !isCommunication) {
     let compileCmd = "";
     if (EXEC_MODE === "isolate") {
         compileCmd = `sh /app/src/sandbox/isolate_runner.sh compile ${mem} ${timeLimit} ${dockerImage} "${lang.commandCompile}" ${tmpDir}`;
@@ -94,15 +92,19 @@ async function processJob(job) {
     }
   }
 
-  let testCacheDir = null;
-  try {
-    testCacheDir = await ensureTestCasesCached(job.problem_id, job.test_cases_version);
-  } catch (e) {
-    await fs.remove(tmpDir);
-    return { status: "Judge Error", error_message: `Failed to fetch test cases: ${e.message}` };
+  let checkerReady = false;
+  const jobFiles = job.files || {};
+  const checkerFile = Object.keys(jobFiles).find((f) => f.toLowerCase() === "checker.cpp" || f.toLowerCase() === "checker");
+  if (checkerFile && jobFiles[checkerFile]) {
+    const checkerRes = await compileChecker(jobFiles[checkerFile], tmpDir);
+    checkerReady = checkerRes.ok;
+    if (!checkerReady) {
+      await fs.remove(tmpDir);
+      return { status: "Judge Error", error_message: checkerRes.error };
+    }
   }
 
-  const ctx = { tmpDir, dockerImage, mem, timeLimit, lang, id, testCacheDir, executeCmd: lang.execute };
+  const ctx = { tmpDir, dockerImage, mem, timeLimit, lang, id, submissionId, testCacheDir, executeCmd: lang.execute, checkerReady, jobFiles };
   const outcome = await runGrading(job, ctx);
 
   await fs.remove(tmpDir);

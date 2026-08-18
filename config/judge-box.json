@@ -29,7 +29,7 @@
     "networkMode": "none",
     "memorySwap": "off",
     "autoPullMissingImages": false,
-    "sandboxFlags": "--pids-limit 64 --cpus 2 --cap-drop=ALL --security-opt no-new-privileges"
+    "sandboxFlags": "--pids-limit 64 --cpus 4 --cap-drop=ALL --security-opt no-new-privileges"
   },
   "isolate": {
     "enabled": true,

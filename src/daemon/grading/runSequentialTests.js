@@ -10,17 +10,17 @@ async function runSequentialTests(tests, ctx) {
     let verdict = "AC";
 
     for (const [testIndex, test] of tests.entries()) {
-        const { testVerdict, timeMs, memoryKb, filteredOutput, sanitizedInput, sanitizedExpected } =
+        const { status, time_used_ms, memory_used_kb, input, output, expected_output } =
             await executeAgainstTest(ctx, test, testIndex);
 
-        maxTimeMs = Math.max(maxTimeMs, timeMs);
-        maxMemoryKb = Math.max(maxMemoryKb, memoryKb);
+        maxTimeMs = Math.max(maxTimeMs, time_used_ms);
+        maxMemoryKb = Math.max(maxMemoryKb, memory_used_kb);
         testResults.push(
-            toTestResult(testVerdict, timeMs, memoryKb, filteredOutput, sanitizedInput, sanitizedExpected)
+            toTestResult(status, time_used_ms, memory_used_kb, output, input, expected_output)
         );
 
-        verdict = testVerdict;
-        if (testVerdict !== "AC" && testVerdict !== "OK") break;
+        verdict = status;
+        if (status !== "AC" && status !== "OK") break;
     }
 
     return { verdict: (verdict === "OK" ? "AC" : verdict), maxTimeMs, maxMemoryKb, testResults };

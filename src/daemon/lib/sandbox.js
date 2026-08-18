@@ -92,7 +92,7 @@ async function executeAgainstTest(ctx, test, testIndex) {
         testIndex,
     });
 
-    return { testVerdict, timeMs, memoryKb, filteredOutput, sanitizedInput, sanitizedExpected };
+    return toTestResult(testVerdict, timeMs, memoryKb, filteredOutput, sanitizedInput, sanitizedExpected);
 }
 
 function toTestResult(testVerdict, timeMs, memoryKb, filteredOutput, sanitizedInput, sanitizedExpected) {

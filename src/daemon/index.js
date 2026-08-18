@@ -41,7 +41,7 @@ async function main() {
 
     if (ENABLE_REDIS) {
         startRedisWorker();
-+       startReaper();
+        startReaper();
     }
 }
 

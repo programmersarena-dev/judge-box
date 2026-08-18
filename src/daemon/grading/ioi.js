@@ -1,12 +1,10 @@
 const { executeAgainstTest, toTestResult } = require("../lib/sandbox");
 const { compileCommunicationBinaries, executeCommunicationTest } = require("./communication");
 const { IOI_TEST_CONCURRENCY } = require("../config");
+const { setSubmissionJudging, setSubmissionFinished } = require("../lib/redis");
+const fs = require("fs-extra");
+const path = require("path");
 
-// Runs an array of async test-jobs with at most `limit` in flight at
-// once. limit=1 (the default) is fully sequential — identical to the
-// prior behavior. Raising it trades judging throughput for timing
-// accuracy; see the IOI_TEST_CONCURRENCY comment in config.js before
-// changing it.
 async function runWithConcurrency(items, limit, worker) {
   const results = new Array(items.length);
   let nextIndex = 0;
@@ -22,28 +20,31 @@ async function runWithConcurrency(items, limit, worker) {
   return results;
 }
 
-// IOI: partial credit per subtask. Every test in a subtask runs to
-// completion even after one fails (full diagnostic output for every
-// test), but a subtask's points are all-or-nothing based on whether
-// every one of its tests passed.
 async function runIOI(job, ctx) {
+  const submissionId = ctx.submissionId || ctx.submission_id || ctx.id;
+  await setSubmissionJudging(submissionId, { status: "Judging" });
+
   let totalPoints = 0;
   let maxTimeMs = 0;
   let maxMemoryKb = 0;
   const processedSubtasks = [];
 
-  const isCommunication = (job.task_type || "Batch") === "Communication";
+  const isCommunication = (job.task_type || "Batch") === "Communication"
+    || (ctx.testCacheDir && fs.existsSync(path.join(ctx.testCacheDir, "graders")));
 
   if (isCommunication) {
     const compileRes = await compileCommunicationBinaries(ctx);
     if (compileRes.code !== 0) {
-      return {
+      const result = {
         status: "CE",
         max_time_used_ms: 0,
         max_memory_used_kb: 0,
         error_message: compileRes.out,
         subtasks: [],
+        score: 0,
       };
+      await setSubmissionFinished(submissionId, result);
+      return result;
     }
   }
 
@@ -54,14 +55,19 @@ async function runIOI(job, ctx) {
     let isPassedSubtask = true;
 
     const testResults = await runWithConcurrency(tests, IOI_TEST_CONCURRENCY, async (test, testIndex) => {
-      const { testVerdict, timeMs, memoryKb, filteredOutput, sanitizedInput, sanitizedExpected } =
-        await runOneTest(ctx, test, testIndex);
+      try {
+        const { status, time_used_ms, memory_used_kb, input, output, expected_output } =
+          await runOneTest(ctx, test, testIndex);
 
-      maxTimeMs = Math.max(maxTimeMs, timeMs);
-      maxMemoryKb = Math.max(maxMemoryKb, memoryKb);
-      if (testVerdict !== "OK") isPassedSubtask = false;
+        maxTimeMs = Math.max(maxTimeMs, time_used_ms);
+        maxMemoryKb = Math.max(maxMemoryKb, memory_used_kb);
+        if (status !== "OK") isPassedSubtask = false;
 
-      return toTestResult(testVerdict, timeMs, memoryKb, filteredOutput, sanitizedInput, sanitizedExpected);
+        return { status, input, output, expected_output, time_used_ms, memory_used_kb, log: status };
+      } catch (err) {
+        isPassedSubtask = false;
+        return { status: "Judge Error", input: "", output: "", expected_output: "", time_used_ms: 0, memory_used_kb: 0, log: "Judge Error" };
+      }
     });
 
     const subtaskPoints = isPassedSubtask ? subtask.points : 0;
@@ -69,13 +75,17 @@ async function runIOI(job, ctx) {
     processedSubtasks.push({ index: subtask.index, points: subtaskPoints, tests: testResults });
   }
 
-  return {
+  const result = {
     status: totalPoints,
+    score: totalPoints,
     max_time_used_ms: maxTimeMs,
     max_memory_used_kb: maxMemoryKb,
     error_message: null,
     subtasks: processedSubtasks,
   };
+
+  await setSubmissionFinished(submissionId, result);
+  return result;
 }
 
 module.exports = { runIOI };
