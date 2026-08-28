@@ -20,14 +20,10 @@ async function processJob(job) {
 
   const dockerImage = `${lang.dockerImage}:${version}`;
 
-  if (EXEC_MODE === "docker") {
+  if (EXEC_MODE === "docker" || EXEC_MODE === "isolate") {
     const { available, error } = await ensureLanguageAvailable(dockerImage);
     if (!available) {
-      return {
-        status: "Judge Error",
-        error_message: `Language image not available on this judge node: ${dockerImage}${error ? ` (${error})` : ""
-          }`,
-      };
+      return { _skip: true };
     }
   }
 

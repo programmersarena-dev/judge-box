@@ -8,6 +8,7 @@ const redis = new Redis(REDIS_URL, { keyPrefix: REDIS_PREFIX });
 const WORKER_ID = `${os.hostname()}-${process.pid}`;
 const IN_PROGRESS_KEY = `judge:jobs:in-progress:${WORKER_ID}`;
 const PROCESSING_HASH = "judge:jobs:processing_at";
+const MAX_SKIPS = 3;
 
 async function startRedisWorker() {
     try {
@@ -35,6 +36,30 @@ async function startRedisWorker() {
             } catch (e) {
                 console.error(`[${WORKER_ID}] processJob threw for ${job.id}:`, e);
                 result = { status: "Judge Error", error_message: String(e) };
+            }
+
+            if (result && result._skip) {
+                const skipKey = `judge:job:${job.id}:skips`;
+                const skipCount = await redis.hincrby(skipKey, "count", 1);
+
+                if (skipCount >= MAX_SKIPS) {
+                    await redis.lpush("judge:results", JSON.stringify({
+                        id: job.id || null,
+                        result: {
+                            status: "Judge Error",
+                            error_message: "No judge node available for this language/version",
+                        },
+                    }));
+                    await redis.lrem(IN_PROGRESS_KEY, 1, raw);
+                    await redis.hdel(PROCESSING_HASH, job.id);
+                    await redis.del(skipKey);
+                    continue;
+                }
+
+                await redis.lpush("judge:jobs", raw);
+                await redis.lrem(IN_PROGRESS_KEY, 1, raw);
+                await redis.hdel(PROCESSING_HASH, job.id);
+                continue;
             }
 
             await redis.lpush("judge:results", JSON.stringify({ id: job.id || null, result }));

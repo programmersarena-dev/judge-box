@@ -1,9 +1,9 @@
 const express = require("express");
 const bodyParser = require("body-parser");
 const { processJob } = require("./processJob");
-const { refreshLocalImageInventory } = require("./lib/dockerImages");
+const { refreshLocalImageInventory, getAvailableLanguages } = require("./lib/dockerImages");
 const { startRedisWorker } = require("./redisWorker");
-const { PORT, ENABLE_REDIS } = require("./config");
+const { PORT, ENABLE_REDIS, LANGS } = require("./config");
 const { fork } = require("child_process");
 const path = require("path");
 
@@ -16,6 +16,11 @@ app.post("/job", async (req, res) => {
 });
 
 app.get("/health", (req, res) => res.json({ status: "ok" }));
+
+app.get("/languages", async (req, res) => {
+    const available = await getAvailableLanguages(LANGS);
+    res.json({ languages: available });
+});
 
 function startReaper() {
     const reaperPath = path.join(__dirname, "judge-reaper.js");

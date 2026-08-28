@@ -60,4 +60,17 @@ async function ensureLanguageAvailable(image) {
     return { available: false, error: out };
 }
 
-module.exports = { refreshLocalImageInventory, isImageAvailableLocally, ensureLanguageAvailable };
+async function getAvailableLanguages(langsConfig) {
+    const available = [];
+    for (const [langKey, langConfig] of Object.entries(langsConfig || {})) {
+        for (const version of langConfig.versions || []) {
+            const dockerImage = `${langConfig.dockerImage}:${version}`;
+            if (await isImageAvailableLocally(dockerImage)) {
+                available.push(`${langKey}-${version}`);
+            }
+        }
+    }
+    return available;
+}
+
+module.exports = { refreshLocalImageInventory, isImageAvailableLocally, ensureLanguageAvailable, getAvailableLanguages };

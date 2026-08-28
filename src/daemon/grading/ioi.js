@@ -74,9 +74,24 @@ async function runIOI(job, ctx) {
         maxMemoryKb = Math.max(maxMemoryKb, memory_used_kb);
         if (status !== "OK") isPassedSubtask = false;
 
+        await updateSubmissionTestStatus(submissionId, {
+          status,
+          time: time_used_ms,
+          memory: memory_used_kb,
+          testIndex,
+          subtask: subtask.index + 1,
+        });
+
         return { status, input, output, expected_output, time_used_ms, memory_used_kb, log: status };
       } catch (err) {
         isPassedSubtask = false;
+        await updateSubmissionTestStatus(submissionId, {
+          status: "Judge Error",
+          time: 0,
+          memory: 0,
+          testIndex,
+          subtask: subtask.index + 1,
+        });
         return { status: "Judge Error", input: "", output: "", expected_output: "", time_used_ms: 0, memory_used_kb: 0, log: "Judge Error" };
       }
     });
