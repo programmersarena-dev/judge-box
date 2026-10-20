@@ -1,17 +1,16 @@
 const { runClassic } = require("./classic");
 const { runICPC } = require("./icpc");
 const { runIOI } = require("./ioi");
-const fs = require("fs-extra");
-const path = require("path");
+const { resolveTaskType } = require('../lib/taskType');
 
 async function runGrading(job, ctx) {
     const gradingType = (job.grading_type || "Standard").toUpperCase();
-    const isCommunication = (job.task_type || "Batch") === "Communication"
-        || (ctx.testCacheDir && fs.existsSync(path.join(ctx.testCacheDir, "graders")));
+    const taskType = ctx.taskType || await resolveTaskType(job, ctx.testCacheDir);
+    const context = { ...ctx, taskType };
 
-    if (gradingType === "IOI" || isCommunication) return runIOI(job, ctx);
-    if (gradingType === "ICPC") return runICPC(job, ctx);
-    return runClassic(job, ctx);
+    if (gradingType === "IOI" || taskType === 'Communication') return runIOI(job, context);
+    if (gradingType === "ICPC") return runICPC(job, context);
+    return runClassic(job, context);
 }
 
 module.exports = { runGrading };

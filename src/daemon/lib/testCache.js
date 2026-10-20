@@ -1,58 +1,64 @@
-const fs = require("fs-extra");
-const path = require("path");
-const axios = require("axios");
-const extractZip = require("extract-zip");
-const { CACHE_ROOT, LARAVEL_INTERNAL_URL, JUDGE_SECRET_TOKEN } = require("../config");
+const fs = require('fs-extra');
+const path = require('node:path');
+const { pipeline } = require('node:stream/promises');
+const axios = require('axios');
+const extractZip = require('extract-zip');
+const { CACHE_ROOT, LARAVEL_INTERNAL_URL, JUDGE_SECRET_TOKEN } = require('../config');
+const downloads = new Map();
 
-// Fetches and extracts a problem's test bundle exactly once per
-// (problem, version) pair on this node, then reuses the local copy for
-// every subsequent submission. `version` should change whenever the
-// tests actually do — GradeSubmissionJob.php passes problem.test_cases_path
-// directly, since that already changes on every admin re-upload.
 async function ensureTestCasesCached(problemId, version) {
     if (!problemId || !version) return null;
-
-    const cacheDir = path.join(CACHE_ROOT, `${problemId}-${version}`);
-    if (await fs.pathExists(cacheDir)) {
-        return cacheDir;
+    if (!/^\d+$/.test(String(problemId)) || !/^[a-zA-Z0-9_-]{1,128}$/.test(String(version))) {
+        throw new Error('Invalid test bundle identifier');
     }
-
-    await fs.mkdirp(CACHE_ROOT);
-    const zipPath = path.join(CACHE_ROOT, `${problemId}-${version}.zip`);
-    const downloadUrl = `${LARAVEL_INTERNAL_URL}/internal/test-cases/${problemId}`;
-    console.log(`[Worker] Downloading test bundle from: ${downloadUrl}`);
-
-    const response = await axios.get(downloadUrl, {
-        headers: { "X-Judge-Token": JUDGE_SECRET_TOKEN },
-        responseType: "stream",
-    });
-
-    await new Promise((resolve, reject) => {
-        const writer = fs.createWriteStream(zipPath);
-        response.data.pipe(writer);
-        writer.on("finish", resolve);
-        writer.on("error", reject);
-    });
-
-    await fs.mkdirp(cacheDir);
-    await extractZip(zipPath, { dir: cacheDir });
-    await fs.remove(zipPath);
-
-    return cacheDir;
+    const key = `${problemId}-${version}`;
+    if (!downloads.has(key)) {
+        downloads.set(key, downloadBundle(problemId, String(version), key).finally(() => downloads.delete(key)));
+    }
+    return downloads.get(key);
 }
 
-// Reads a test file from the local cache if a reference was given, else
-// falls back to inline content — supports both job payload shapes during
-// a gradual rollout.
-async function readTestFile(cacheDir, relativeFile, inlineFallback) {
-    if (relativeFile && cacheDir) {
-        const fullPath = path.join(cacheDir, relativeFile);
-        if (!(await fs.pathExists(fullPath))) {
-            throw new Error(`Test file not found in cache: ${relativeFile} (${fullPath})`);
+async function downloadBundle(problemId, version, key) {
+    const cacheDir = path.join(CACHE_ROOT, `v2-${key}`);
+    if (await fs.pathExists(path.join(cacheDir, '.complete'))) return cacheDir;
+    await fs.mkdirp(CACHE_ROOT);
+    const staging = await fs.mkdtemp(path.join(CACHE_ROOT, '.download-'));
+    try {
+        const response = await axios.get(`${LARAVEL_INTERNAL_URL}/internal/test-cases/${problemId}`, {
+            headers: { 'X-Judge-Token': JUDGE_SECRET_TOKEN },
+            params: version.length === 64 ? { version } : {},
+            responseType: 'stream', timeout: 60000,
+        });
+        const archive = path.join(staging, 'tests.zip');
+        await pipeline(response.data, fs.createWriteStream(archive));
+        const extracted = path.join(staging, 'bundle');
+        await fs.mkdirp(extracted);
+        await extractZip(archive, { dir: extracted });
+        await fs.writeFile(path.join(extracted, '.complete'), 'ok');
+        try {
+            await fs.rename(extracted, cacheDir);
+        } catch (error) {
+            if (!(await fs.pathExists(path.join(cacheDir, '.complete')))) throw error;
         }
-        return fs.readFile(fullPath, "utf8");
+        return cacheDir;
+    } finally {
+        await fs.remove(staging);
     }
-    return inlineFallback || "";
+}
+
+async function readTestFile(cacheDir, relativeFile, inlineFallback) {
+    if (relativeFile) {
+        if (!cacheDir || path.isAbsolute(relativeFile) || relativeFile.includes('\\')) {
+            throw new Error('Invalid test file reference');
+        }
+        const root = await fs.realpath(cacheDir);
+        const candidate = path.resolve(root, relativeFile);
+        if (!candidate.startsWith(root + path.sep)) throw new Error('Test file escapes cache directory');
+        const actual = await fs.realpath(candidate);
+        if (!actual.startsWith(root + path.sep)) throw new Error('Test symlink escapes cache directory');
+        return fs.readFile(actual, 'utf8');
+    }
+    return inlineFallback || '';
 }
 
 module.exports = { ensureTestCasesCached, readTestFile };

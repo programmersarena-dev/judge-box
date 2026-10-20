@@ -39,7 +39,8 @@ cp -r "$TMPDIR"/* "$BOX_DIR/" 2>/dev/null || true
 
 # Enforce cgroups limits via isolate
 # Note: isolate v1.9+ supports --box-cgroup for cgroup enforcement
-ISOLATE_OPTS="--box-id=$BOX_ID --cg --cg-mem=${MEM}M --timeout=$TIMEOUT --wall-time=$((TIMEOUT + 1)) --max-processes=1 --stack=8192 --extra-time=1"
+WALL_TIME=$(awk -v seconds="$TIMEOUT" 'BEGIN { print seconds + 1 }')
+ISOLATE_OPTS="--box-id=$BOX_ID --cg --cg-mem=${MEM}M --timeout=$TIMEOUT --wall-time=$WALL_TIME --max-processes=1 --stack=8192 --extra-time=1"
 
 cleanup_box() {
   isolate $ISOLATE_OPTS --cleanup >/dev/null 2>&1 || true

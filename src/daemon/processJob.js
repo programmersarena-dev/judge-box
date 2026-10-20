@@ -1,110 +1,73 @@
-const fs = require("fs-extra");
-const path = require("path");
-const { v4: uuidv4 } = require("uuid");
-const { LANGS, EXEC_MODE, SANDBOX_FLAGS } = require("./config");
-const { runCommand } = require("./lib/runCommand");
-const { ensureLanguageAvailable } = require("./lib/dockerImages");
-const { ensureTestCasesCached } = require("./lib/testCache");
-const { runGrading } = require("./grading");
-const { compileChecker } = require("./lib/checker");
+const fs = require('fs-extra');
+const path = require('node:path');
+const { randomUUID } = require('node:crypto');
+const { LANGS, EXEC_MODE } = require('./config');
+const { runCommand } = require('./lib/runCommand');
+const { runDocker } = require('./lib/docker');
+const { createWorkspace, safeFilePath } = require('./lib/workspace');
+const { ensureLanguageAvailable } = require('./lib/dockerImages');
+const { ensureTestCasesCached } = require('./lib/testCache');
+const { runGrading } = require('./grading');
+const { compileChecker } = require('./lib/checker');
+const { resolveTaskType, prepareBatchGrader } = require('./lib/taskType');
 
 async function processJob(job) {
-  const id = job.id || uuidv4();
+  const id = String(job.id || randomUUID());
   const submissionId = job.submission_id || job.submissionId || id;
   const langKey = job.language;
-  const version =
-    job.version ||
-    (LANGS[langKey] && LANGS[langKey].versions && LANGS[langKey].versions[0]);
-  const lang = LANGS[langKey];
-  if (!lang) return { error: "unsupported language" };
-
+  const lang = Object.hasOwn(LANGS, langKey) ? LANGS[langKey] : null;
+  const version = String(job.version || lang?.versions?.[0] || '');
+  if (!lang || !lang.versions?.map(String).includes(version)) {
+    return { status: 'Judge Error', error_message: 'Unsupported language/version' };
+  }
   const dockerImage = `${lang.dockerImage}:${version}`;
-
-  if (EXEC_MODE === "docker" || EXEC_MODE === "isolate") {
-    const { available, error } = await ensureLanguageAvailable(dockerImage);
-    if (!available) {
-      return { _skip: true };
-    }
+  if (EXEC_MODE === 'docker' || EXEC_MODE === 'isolate') {
+    const { available } = await ensureLanguageAvailable(dockerImage);
+    if (!available) return { _skip: true };
   }
-
-  const tmpDir = path.join("/tmp", `submission-${id}`);
-  await fs.remove(tmpDir);
-  await fs.mkdirp(tmpDir);
-  await fs.chmod(tmpDir, 0o777);
-
-  for (let [name, content] of Object.entries(job.files || {})) {
-    if (content) {
-      if (
-        typeof content === "string" &&
-        content.startsWith('"') &&
-        content.endsWith('"')
-      ) {
-        try {
-          content = JSON.parse(content);
-        } catch (e) {
-          content = content.slice(1, -1);
-        }
-      }
-      await fs.writeFile(path.join(tmpDir, name), content);
-    }
-  }
-
-  const rawTimeLimit = parseInt(job.time_limit, 10) || 1000;
-  const timeLimit = rawTimeLimit > 50 ? Math.max(1, Math.ceil(rawTimeLimit / 1000)) : rawTimeLimit;
-  const mem = parseInt(job.memory_limit, 10) || 256;
-
-  let testCacheDir = null;
+  const tmpDir = await createWorkspace();
   try {
-    testCacheDir = await ensureTestCasesCached(job.problem_id, job.test_cases_version);
-  } catch (e) {
+    for (const [name, content] of Object.entries(job.files || {})) {
+      const filename = safeFilePath(tmpDir, name);
+      if (typeof content !== 'string') throw new Error('Job files must contain text');
+      if (content.length > 1024 * 1024) throw new Error('Job source file exceeds 1 MB');
+      if (content) await fs.writeFile(filename, content);
+    }
+    const rawTimeLimit = Number(job.time_limit) || 1000;
+    const timeLimit = job.time_limit_unit === 'ms' || rawTimeLimit > 50
+      ? rawTimeLimit / 1000 : rawTimeLimit;
+    const mem = Number(job.memory_limit) || 256;
+    if (!(timeLimit > 0 && timeLimit <= 300) || !Number.isInteger(mem) || mem < 1 || mem > 65536) {
+      throw new Error('Invalid execution limits');
+    }
+    const testCacheDir = await ensureTestCasesCached(job.problem_id, job.test_cases_version);
+    const taskType = await resolveTaskType(job, testCacheDir);
+    const compileCommand = taskType === 'Batch'
+      ? await prepareBatchGrader(testCacheDir, tmpDir, lang, job.files || {}) : null;
+    if (compileCommand) {
+      const compileRes = EXEC_MODE === 'isolate'
+        ? await runCommand('sh', ['/app/src/sandbox/isolate_runner.sh', 'compile', String(mem), '120', compileCommand, tmpDir], { timeout: 125000, maxBuffer: 10 * 1024 * 1024 })
+        : await runDocker(dockerImage, tmpDir, mem, ['sh', '-c', `timeout 120s ${compileCommand} 2>&1`], {
+          timeout: 125000, maxBuffer: 10 * 1024 * 1024,
+          extraArgs: lang.buildCacheDir ? ['-v', `judge-${langKey}-cache:${lang.buildCacheDir}`] : [],
+        });
+      if (compileRes.code !== 0) return { status: 'CE', error_message: compileRes.out };
+      const binaryPath = path.join(tmpDir, 'executable');
+      if (await fs.pathExists(binaryPath)) await fs.chmod(binaryPath, 0o755);
+    }
+    let checkerReady = false;
+    const jobFiles = job.files || {};
+    const checkerFile = Object.keys(jobFiles).find((name) => ['checker.cpp', 'checker'].includes(name.toLowerCase()));
+    if (checkerFile && jobFiles[checkerFile]) {
+      const result = await compileChecker(jobFiles[checkerFile], tmpDir);
+      if (!result.ok) return { status: 'Judge Error', error_message: result.error };
+      checkerReady = true;
+    }
+    return await runGrading(job, { tmpDir, dockerImage, mem, timeLimit, lang, id, submissionId,
+      testCacheDir, taskType, executeCmd: lang.execute, checkerReady, jobFiles });
+  } finally {
     await fs.remove(tmpDir);
-    return { status: "Judge Error", error_message: `Failed to fetch test cases: ${e.message}` };
   }
-
-  const isCommunication = (job.task_type || "Batch") === "Communication"
-    || (testCacheDir && fs.existsSync(path.join(testCacheDir, "graders")));
-
-  if (lang.commandCompile && !isCommunication) {
-    let compileCmd = "";
-    if (EXEC_MODE === "isolate") {
-        compileCmd = `sh /app/src/sandbox/isolate_runner.sh compile ${mem} ${timeLimit} ${dockerImage} "${lang.commandCompile}" ${tmpDir}`;
-    } else {
-      const cacheMount = lang.buildCacheDir
-          ? ` -v judge-${langKey}-cache:${lang.buildCacheDir}`
-          : "";
-      compileCmd = `docker run --rm --network none --memory=${mem}m ${SANDBOX_FLAGS} -v ${tmpDir}:/submission${cacheMount} -w /submission ${dockerImage} sh -c "timeout 120s ${lang.commandCompile} 2>&1"`;
-    }
-
-    const compileRes = await runCommand(compileCmd, { maxBuffer: 10 * 1024 * 1024 });
-
-    if (compileRes.code !== 0) {
-      await fs.remove(tmpDir);
-      return { status: "CE", error_message: compileRes.out };
-    }
-
-    const binaryPath = path.join(tmpDir, 'executable');
-    if (await fs.pathExists(binaryPath)) {
-      await fs.chmod(binaryPath, 0o755);
-    }
-  }
-
-  let checkerReady = false;
-  const jobFiles = job.files || {};
-  const checkerFile = Object.keys(jobFiles).find((f) => f.toLowerCase() === "checker.cpp" || f.toLowerCase() === "checker");
-  if (checkerFile && jobFiles[checkerFile]) {
-    const checkerRes = await compileChecker(jobFiles[checkerFile], tmpDir);
-    checkerReady = checkerRes.ok;
-    if (!checkerReady) {
-      await fs.remove(tmpDir);
-      return { status: "Judge Error", error_message: checkerRes.error };
-    }
-  }
-
-  const ctx = { tmpDir, dockerImage, mem, timeLimit, lang, id, submissionId, testCacheDir, executeCmd: lang.execute, checkerReady, jobFiles };
-  const outcome = await runGrading(job, ctx);
-
-  await fs.remove(tmpDir);
-  return outcome;
 }
 
 module.exports = { processJob };

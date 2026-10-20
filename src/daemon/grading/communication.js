@@ -1,9 +1,9 @@
 const fs = require("fs-extra");
 const path = require("path");
-const { runCommand } = require("../lib/runCommand");
+const { runDocker } = require('../lib/docker');
+const { createWorkspace } = require('../lib/workspace');
 const { readTestFile } = require("../lib/testCache");
 const { toTestResult } = require("../lib/sandbox");
-const { SANDBOX_FLAGS } = require("../config");
 
 async function compileCommunicationBinaries(ctx) {
   const { tmpDir, dockerImage, mem, testCacheDir, lang, jobFiles } = ctx;
@@ -31,10 +31,9 @@ async function compileCommunicationBinaries(ctx) {
     contestantCompileCmd = `echo "wrapper"`;
   }
 
-  const compileCmd = `docker run --rm --network none --memory=${mem}m ${SANDBOX_FLAGS} -v ${tmpDir}:/submission ${dockerImage} sh -c "cd /submission && ${contestantCompileCmd} && g++ -O2 -o /submission/manager_bin /submission/manager.cpp 2>&1"`;
-
-  const compileRes = await runCommand(compileCmd, { maxBuffer: 10 * 1024 * 1024 });
-  console.error(`[Comm] COMPILE job=${ctx.id} code=${compileRes.code} cmd=${compileCmd.slice(0, 200)}`);
+  const compileRes = await runDocker(dockerImage, tmpDir, mem,
+    ['sh', '-c', `${contestantCompileCmd} && g++ -O2 -o /submission/manager_bin /submission/manager.cpp 2>&1`],
+    { timeout: 120000, maxBuffer: 10 * 1024 * 1024 });
   if (compileRes.code !== 0) {
     console.error(`[Comm] COMPILE OUTPUT: ${compileRes.out.slice(0, 3000)}`);
   }
@@ -42,9 +41,19 @@ async function compileCommunicationBinaries(ctx) {
 }
 
 async function executeCommunicationTest(ctx, test, testIndex) {
+  const runtimeDir = await createWorkspace();
+  try {
+    await fs.copy(ctx.tmpDir, runtimeDir);
+    return await executeIsolatedCommunicationTest({ ...ctx, tmpDir: runtimeDir }, test, testIndex);
+  } finally {
+    await fs.remove(runtimeDir);
+  }
+}
+
+async function executeIsolatedCommunicationTest(ctx, test, testIndex) {
   const { tmpDir, dockerImage, mem, timeLimit, testCacheDir, id } = ctx;
 
-  const sanitizedInput = (await readTestFile(testCacheDir, test.input_file, test.input)).trim();
+  const sanitizedInput = await readTestFile(testCacheDir, test.input_file, test.input);
   const sanitizedExpected = (
     await readTestFile(testCacheDir, test.expected_output_file, test.expected_output)
   ).trim();
@@ -81,9 +90,8 @@ echo "MANAGER_EXIT:$MANAGER_EXIT"
 
   await fs.writeFile(path.join(tmpDir, "run.sh"), wrapperScript);
 
-  const execCmd = `docker run --rm --network none --memory=${mem}m ${SANDBOX_FLAGS} -v ${tmpDir}:/submission ${dockerImage} sh /submission/run.sh`;
-
-  const execRes = await runCommand(execCmd, { maxBuffer: 20 * 1024 * 1024 });
+  const execRes = await runDocker(dockerImage, tmpDir, mem, ['sh', '/submission/run.sh'],
+    { timeout: Math.ceil((timeLimit + 10) * 1000), maxBuffer: 20 * 1024 * 1024 });
 
   const lines = execRes.out.split("\n");
   const contestantAExit = parseInt((lines.find((l) => l.startsWith("CONTESTANT_A_EXIT:")) || "").split(":")[1] ?? "1", 10);

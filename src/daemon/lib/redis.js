@@ -59,6 +59,7 @@ async function updateSubmissionTestStatus(submissionId, testInfo = {}) {
         };
 
         const hashPayload = {
+            finished: '0',
             status: statusText,
             time: String(time ?? 0),
             memory: String(memory ?? 0),
@@ -116,6 +117,7 @@ async function setSubmissionJudging(submissionId, initialInfo = {}) {
         const legacyKey = `submission:${submissionId}:status`;
 
         const payload = {
+            finished: '0',
             status: initialInfo.status || "Judging",
             time: String(initialInfo.time || 0),
             memory: String(initialInfo.memory || 0),
@@ -154,6 +156,7 @@ async function setSubmissionFinished(submissionId, finalResult = {}) {
         const legacyKey = `submission:${submissionId}:status`;
 
         const payload = {
+            finished: '1',
             status: String(finalResult.status ?? "Finished"),
             time: String(finalResult.max_time_used_ms ?? finalResult.time ?? 0),
             memory: String(finalResult.max_memory_used_kb ?? finalResult.memory ?? 0),

@@ -17,7 +17,7 @@ const localImages = new Set();
 // so the very first job processed already benefits from a real
 // inventory instead of hitting the cold-cache fallback path.
 async function refreshLocalImageInventory() {
-    const { out, code } = await runCommand(`docker images --format "{{.Repository}}:{{.Tag}}"`);
+    const { out, code } = await runCommand('docker', ['images', '--format', '{{.Repository}}:{{.Tag}}']);
     if (code !== 0) {
         console.error("[Worker] Failed to list local docker images:", out);
         return;
@@ -34,7 +34,7 @@ async function refreshLocalImageInventory() {
 async function isImageAvailableLocally(image) {
     if (localImages.has(image)) return true;
 
-    const { code } = await runCommand(`docker image inspect ${image}`);
+    const { code } = await runCommand('docker', ['image', 'inspect', image]);
     if (code === 0) {
         localImages.add(image);
         return true;
@@ -52,7 +52,7 @@ async function ensureLanguageAvailable(image) {
     if (!AUTO_PULL_MISSING) return { available: false };
 
     console.warn(`[Worker] ${image} not present locally, pulling (AUTO_PULL_MISSING_IMAGES=1)...`);
-    const { code, out } = await runCommand(`docker pull ${image}`, { maxBuffer: 10 * 1024 * 1024 });
+    const { code, out } = await runCommand('docker', ['pull', image], { timeout: 120000, maxBuffer: 10 * 1024 * 1024 });
     if (code === 0) {
         localImages.add(image);
         return { available: true };

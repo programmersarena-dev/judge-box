@@ -1,11 +1,14 @@
-const { exec } = require("child_process");
+const { execFile } = require('node:child_process');
 
-function runCommand(cmd, opts = {}) {
+function runCommand(file, args = [], opts = {}) {
+    if (!Array.isArray(args)) throw new TypeError('Command arguments must be an array');
     return new Promise((resolve) => {
-        const child = exec(cmd, { ...opts, timeout: 30000 }, (err, stdout, stderr) => {
-            const out = (stdout || '') + (stderr || '');
-            const code = err && typeof err.code === 'number' ? err.code : (err && err.killed ? 124 : 0);
-            resolve({ out: out.trim(), code });
+        execFile(file, args, { timeout: 30000, ...opts, shell: false }, (err, stdout, stderr) => {
+            const outputLimited = err?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER';
+            const timedOut = Boolean(err?.killed) && !outputLimited;
+            const code = !err ? 0 : outputLimited ? 125 : timedOut ? 124
+                : typeof err.code === 'number' ? err.code : 1;
+            resolve({ out: ((stdout || '') + (stderr || '')).trim(), code, timedOut, outputLimited });
         });
     });
 }

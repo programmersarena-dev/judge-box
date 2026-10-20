@@ -141,6 +141,18 @@ Defines supported languages:
 
 The mode is selected per‑job by the `grading_type` field.
 
+Grading mode (IOI scoring) is separate from task type (Batch or Communication).
+Task type comes from `job.task_type`, then the bundle's `problem.json`. Legacy
+bundles without metadata are Communication only when `graders/manager.cpp` is
+present; a `graders/` directory alone does not imply Communication.
+
+C++ Batch function tasks must provide `graders/grader.cpp` and any required
+headers. The grader is copied into the private build directory and linked with
+`submission.cpp` via `languages.gcc.commandCompileGrader`. The supplied GCC
+configuration includes both translation units. Custom configurations must do
+the same unless their grader already includes the contestant source. Other
+language-specific Batch graders are not supported by this implementation.
+
 ---
 
 ## Sandbox Modes
@@ -192,9 +204,9 @@ This ensures no job is lost when a worker crashes.
 
 If a problem supplies a C++ checker, the daemon:
 
-1. Compiles it once per job using `gcc:12`.
+1. Compiles it once per job using the first configured `languages.gcc` image/version (`gcc:12` if absent). Install that image on every checker-capable worker.
 2. For each test, runs the checker with arguments `input.txt output.txt expected.txt`.
-3. Checker exit code `0` → AC, anything else → WA.
+3. Checker exit code `0` → OK; ordinary rejection → WA; timeouts, output limits, or Docker execution failures → Judge Error.
 
 Checker output is captured and logged.
 
@@ -225,13 +237,20 @@ judge-box/
 
 ### Running Tests
 
-There is no dedicated test suite yet; manual testing via `curl` is possible:
+Run the automated tests without connecting to the application's Redis instance:
 
 ```bash
-curl -X POST http://localhost:3001/job \
-  -H "Content-Type: application/json" \
-  -d '{"problem_id":1, "language":"cpp", ...}'
+cd src/daemon
+npm ci
+npm test
+# Optional real-container tests; requires Docker access and the configured GCC image.
+ARENA_DOCKER_TESTS=1 npm test
 ```
+
+The Docker tests exercise concurrent input isolation, reference-answer separation,
+and custom-checker exit codes. Isolate mode remains experimental and is not covered
+by these integration tests. See the backend's `docs/optimization-rollout.md` for
+the coordinated frontend/backend/judge rollout.
 
 ### Adding a New Language
 

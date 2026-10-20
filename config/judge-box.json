@@ -55,7 +55,7 @@
     "gcc": {
       "dockerImage": "gcc",
       "commandCompile": "g++ /submission/submission.cpp -o /submission/executable",
-      "commandCompileGrader": "g++ -o /submission/executable /submission/grader.cpp",
+      "commandCompileGrader": "g++ -O2 -I/submission -o /submission/executable /submission/grader.cpp /submission/submission.cpp",
       "execute": "/submission/executable",
       "versions": [
         "10",

@@ -1,9 +1,8 @@
-const { executeAgainstTest, toTestResult } = require("../lib/sandbox");
+const { executeAgainstTest } = require("../lib/sandbox");
 const { compileCommunicationBinaries, executeCommunicationTest } = require("./communication");
 const { IOI_TEST_CONCURRENCY } = require("../config");
 const { setSubmissionJudging, setSubmissionFinished, updateSubmissionTestStatus } = require("../lib/redis");
-const fs = require("fs-extra");
-const path = require("path");
+const { resolveTaskType } = require('../lib/taskType');
 
 async function runWithConcurrency(items, limit, worker) {
   const results = new Array(items.length);
@@ -29,8 +28,7 @@ async function runIOI(job, ctx) {
   let maxMemoryKb = 0;
   const processedSubtasks = [];
 
-  const isCommunication = (job.task_type || "Batch") === "Communication"
-    || (ctx.testCacheDir && fs.existsSync(path.join(ctx.testCacheDir, "graders")));
+  const isCommunication = (ctx.taskType || await resolveTaskType(job, ctx.testCacheDir)) === 'Communication';
 
   if (isCommunication) {
     const compileRes = await compileCommunicationBinaries(ctx);

@@ -2,6 +2,7 @@ const Redis = require("ioredis");
 const os = require("os");
 const { REDIS_URL, REDIS_PREFIX } = require("./config");
 const { processJob } = require("./processJob");
+const { setSubmissionJudging, setSubmissionFinished } = require('./lib/redis');
 
 const redis = new Redis(REDIS_URL, { keyPrefix: REDIS_PREFIX });
 
@@ -29,6 +30,10 @@ async function startRedisWorker() {
             }
 
             await redis.hset(PROCESSING_HASH, job.id, Date.now());
+            const submissionId = job.submission_id || job.submissionId || String(job.id).match(/^sub-(\d+)-/)?.[1];
+            const queueStateKey = submissionId ? `judge:submission:${submissionId}:queue-state` : null;
+            if (queueStateKey) await redis.set(queueStateKey, 'Judging', 'EX', 86400);
+            await setSubmissionJudging(submissionId);
 
             let result;
             try {
@@ -43,6 +48,8 @@ async function startRedisWorker() {
                 const skipCount = await redis.hincrby(skipKey, "count", 1);
 
                 if (skipCount >= MAX_SKIPS) {
+                    await setSubmissionFinished(submissionId, { status: 'Judge Error' });
+                    if (queueStateKey) await redis.del(queueStateKey);
                     await redis.lpush("judge:results", JSON.stringify({
                         id: job.id || null,
                         result: {
@@ -57,12 +64,16 @@ async function startRedisWorker() {
                 }
 
                 await redis.lpush("judge:jobs", raw);
+                if (queueStateKey) await redis.set(queueStateKey, 'In Queue', 'EX', 86400);
+                await setSubmissionJudging(submissionId, { status: 'In Queue' });
                 await redis.lrem(IN_PROGRESS_KEY, 1, raw);
                 await redis.hdel(PROCESSING_HASH, job.id);
                 continue;
             }
 
+            await setSubmissionFinished(submissionId, result);
             await redis.lpush("judge:results", JSON.stringify({ id: job.id || null, result }));
+            if (queueStateKey) await redis.del(queueStateKey);
 
             await redis.lrem(IN_PROGRESS_KEY, 1, raw);
             await redis.hdel(PROCESSING_HASH, job.id);
