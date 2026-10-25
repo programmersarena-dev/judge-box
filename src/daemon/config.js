@@ -33,21 +33,23 @@ function formatBaseUrl(urlStr) {
     return url.replace(/\/+$/, "");
 }
 
-const EXEC_MODE = jsonConfig.executionMode || "docker"; // 'docker' or 'isolate'
-const PORT = jsonConfig.port || 3001;
-const ENABLE_REDIS = jsonConfig.enableRedis !== undefined ? Boolean(jsonConfig.enableRedis) : true;
-const LOG_LEVEL = jsonConfig.logLevel || "info";
+const EXEC_MODE = process.env.EXEC_MODE || jsonConfig.executionMode || "docker"; // 'docker' or 'isolate'
+const PORT = parseInt(process.env.PORT, 10) || jsonConfig.port || 3001;
+const ENABLE_REDIS = process.env.ENABLE_REDIS !== undefined
+    ? !["0", "false", "no"].includes(process.env.ENABLE_REDIS.toLowerCase())
+    : (jsonConfig.enableRedis !== undefined ? Boolean(jsonConfig.enableRedis) : true);
+const LOG_LEVEL = process.env.LOG_LEVEL || jsonConfig.logLevel || "info";
 
 const REDIS_CONFIG = jsonConfig.redis || {};
-const REDIS_URL = REDIS_CONFIG.url || (REDIS_CONFIG.host && REDIS_CONFIG.port ? `redis://${REDIS_CONFIG.host}:${REDIS_CONFIG.port}` : "redis://127.0.0.1:6379");
-const REDIS_PREFIX = REDIS_CONFIG.prefix || "";
+const REDIS_URL = process.env.REDIS_URL || REDIS_CONFIG.url || (REDIS_CONFIG.host && REDIS_CONFIG.port ? `redis://${REDIS_CONFIG.host}:${REDIS_CONFIG.port}` : "redis://127.0.0.1:6379");
+const REDIS_PREFIX = process.env.REDIS_PREFIX ?? REDIS_CONFIG.prefix ?? "";
 
 const TEST_CACHE = jsonConfig.testCache || {};
 const CACHE_ROOT = TEST_CACHE.dir || "/var/cache/judge/tests";
 
 const LARAVEL_CONFIG = jsonConfig.laravel || {};
-const JUDGE_SECRET_TOKEN = LARAVEL_CONFIG.secretToken || "judge-secret-token";
-const LARAVEL_INTERNAL_URL = formatBaseUrl(LARAVEL_CONFIG.internalUrl || "http://127.0.0.1:8001/api/v1");
+const JUDGE_SECRET_TOKEN = process.env.JUDGE_SECRET_TOKEN || LARAVEL_CONFIG.secretToken || "judge-secret-token";
+const LARAVEL_INTERNAL_URL = formatBaseUrl(process.env.LARAVEL_INTERNAL_URL || LARAVEL_CONFIG.internalUrl || "http://127.0.0.1:8001/api/v1");
 
 const DOCKER_CONFIG = jsonConfig.docker || {};
 const AUTO_PULL_MISSING = DOCKER_CONFIG.autoPullMissingImages === true;
